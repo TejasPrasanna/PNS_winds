@@ -606,7 +606,7 @@ void cooling(MeshBlock *pmb, const Real time, const Real dt,
             Real temp = prim(IPR,k,j,i) / prim(IDN,k,j,i);
             Real de = dt*prim(IDN,k,j,i)*(temp-temp_eq)/tau_cool/gm1;
             if (prevent_heating)
-              de = fmax(0.0, de);
+              de = std::max(0.0, de);
             //printf("%f",temp);
             cons(IEN,k,j,i) -= de;
           }
