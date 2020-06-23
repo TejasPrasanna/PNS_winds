@@ -31,6 +31,15 @@
 #include "../parameter_input.hpp"
 #include "../scalars/scalars.hpp"
 
+
+// Global variables for this file
+namespace {
+  Real tau_cool;        // Cooling time scale
+  Real temp_eq;         // Equalibrum temperature
+  Real gm1;             // gamma - 1
+  bool prevent_heating; // do we prevent heating
+}
+
 //========================================================================================
 //! \fn Real press(Real rho, Real T)
 //  \brief Calculate pressure as a function of density and temperature for H EOS.
@@ -41,29 +50,20 @@ Real press(Real rho, Real T) {
   Real x = 2. /(1 + std::sqrt(1 + 4. * rho * std::exp(1. / T) * std::pow(T, -1.5)));
   return rho * T * (1. + x);
 }
-//My source function
 
-void cooling(MeshBlock *pmb, const Real time, const Real dt, const AthenaArray<Real> &prim,
-                 const AthenaArray<Real> &bcc, AthenaArray<Real> &cons)
-    {
-      Real g = 1.4;
-	
-      Real tau = 0.01;
-      for (int k=pmb->ks; k<=pmb->ke; ++k) {
-        for (int j=pmb->js; j<=pmb->je; ++j) {
-          for (int i=pmb->is; i<=pmb->ie; ++i) {
-            Real temp = (g-1.0)*prim(IEN,k,j,i)/prim(IDN,k,j,i);
-            //printf("%f",temp);		
-            cons(IEN,k,j,i) -= dt*prim(IDN,k,j,i)*(temp-10.0)/tau/(g-1.0);
-          }
-        }
-      }
-      return;
-    }
+// Source function declaration
+void cooling(MeshBlock *pmb, const Real time, const Real dt,
+             const AthenaArray<Real> &prim, const AthenaArray<Real> &bcc,
+             AthenaArray<Real> &cons);
 
 void Mesh::InitUserMeshData(ParameterInput *pin) {
+  tau_cool = pin->GetOrAddReal("problem", "tau_cool", 0.01);
+  temp_eq = pin->GetOrAddReal("problem", "temp_eq", 10.0);
+  gm1 = pin->GetOrAddReal("hydro", "gamma", 1.4) - 1.0;
+  prevent_heating = pin->GetOrAddBoolean("problem", "prevent_heating", true);
   // Enroll source term
-  EnrollUserExplicitSourceFunction(cooling);
+  if (pin->GetOrAddBoolean("problem", "enroll_cooling", false))
+    EnrollUserExplicitSourceFunction(cooling);
 }
 //========================================================================================
 //! \fn void Mesh::UserWorkAfterLoop(ParameterInput *pin)
@@ -595,3 +595,22 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   }
   return;
 }
+
+// Cooling source function
+void cooling(MeshBlock *pmb, const Real time, const Real dt,
+             const AthenaArray<Real> &prim, const AthenaArray<Real> &bcc,
+             AthenaArray<Real> &cons) {
+      for (int k=pmb->ks; k<=pmb->ke; ++k) {
+        for (int j=pmb->js; j<=pmb->je; ++j) {
+          for (int i=pmb->is; i<=pmb->ie; ++i) {
+            Real temp = prim(IPR,k,j,i) / prim(IDN,k,j,i);
+            Real de = dt*prim(IDN,k,j,i)*(temp-temp_eq)/tau/gm1;
+            if (prevent_heating)
+              de = MAX(0.0, de);
+            //printf("%f",temp);
+            cons(IEN,k,j,i) -= de;
+          }
+        }
+      }
+      return;
+    }
